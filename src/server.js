@@ -79,13 +79,13 @@ app.post("/webhook", async (req, res) => {
   }
 });
 
-// Función para obtener respuesta de Groq API (Llama 3.3)
+// Función para obtener respuesta de Groq API (Llama 3 70B)
 async function getGroqResponse(userMessage) {
   try {
     const response = await axios.post(
       "https://api.groq.com/openai/v1/chat/completions",
       {
-        model: "llama-3.3-70b-versatile",
+        model: "llama3-70b-8192",
         messages: [
           { role: "system", content: SYSTEM_PROMPT },
           { role: "user", content: userMessage }
