@@ -6,7 +6,8 @@ const app = express();
 app.use(express.json());
 
 // ==========================================
-// PROMPT DE PERSONALIDAD E INSTRUCCIONES (Joana / Clalon Shop)
+// PROMPT DE PERSONALIDAD E INSTRUCCIONES
+// (Joana / Clalon Shop)
 // ==========================================
 const SYSTEM_PROMPT = `
 Eres Joana, la asistente virtual oficial de Clalon Shop.
@@ -24,18 +25,25 @@ REGLAS DE ATENCIÓN:
 4. Si la consulta requiere atención humana o seguimiento especial, facilítale contacto directo con soporte.
 `;
 
-// Ruta de estado
+// ==========================================
+// RUTA PRINCIPAL
+// ==========================================
 app.get("/", (req, res) => {
   res.send("🤖 JoanaBot de Clalon Shop funcionando con IA (Groq)");
 });
 
-// 1. Validar Webhook con Meta (GET)
+// ==========================================
+// 1. VALIDAR WEBHOOK CON META (GET)
+// ==========================================
 app.get("/webhook", (req, res) => {
   const mode = req.query["hub.mode"];
   const token = req.query["hub.verify_token"];
   const challenge = req.query["hub.challenge"];
 
-  if (mode === "subscribe" && token === process.env.META_VERIFY_TOKEN) {
+  if (
+    mode === "subscribe" &&
+    token === process.env.META_VERIFY_TOKEN
+  ) {
     console.log("✅ Webhook verificado exitosamente con Meta.");
     res.status(200).send(challenge);
   } else {
@@ -44,7 +52,9 @@ app.get("/webhook", (req, res) => {
   }
 });
 
-// 2. Recepción y procesamiento de mensajes de WhatsApp (POST)
+// ==========================================
+// 2. RECEPCIÓN DE MENSAJES DE WHATSAPP
+// ==========================================
 app.post("/webhook", async (req, res) => {
   const body = req.body;
 
@@ -63,7 +73,9 @@ app.post("/webhook", async (req, res) => {
         const from = message.from;
         const userText = message.text.body;
 
-        console.log(`📩 Mensaje recibido de ${from}: "${userText}"`);
+        console.log(
+          `📩 Mensaje recibido de ${from}: "${userText}"`
+        );
 
         // Consultar la IA
         const aiResponse = await getGroqResponse(userText);
@@ -72,26 +84,42 @@ app.post("/webhook", async (req, res) => {
         await sendWhatsAppMessage(from, aiResponse);
       }
     } catch (error) {
-      console.error("❌ Error interno al procesar webhook:", error?.response?.data || error.message);
+      console.error(
+        "❌ Error interno al procesar webhook:",
+        error?.response?.data || error.message
+      );
     }
   } else {
     res.sendStatus(404);
   }
 });
 
-// Función para obtener respuesta de Groq API (Llama 3.3 70B Versatile)
+// ==========================================
+// 3. FUNCIÓN PARA OBTENER RESPUESTA DE GROQ
+// ==========================================
 async function getGroqResponse(userMessage) {
   try {
-    const groqKey = process.env.GROQ_API_KEY ? process.env.GROQ_API_KEY.trim() : "";
+    const groqKey = process.env.GROQ_API_KEY
+      ? process.env.GROQ_API_KEY.trim()
+      : "";
 
     const response = await axios.post(
       "https://api.groq.com/openai/v1/chat/completions",
       {
-        model: "llama-3.3-70b-versatile",
+        // MODELO ACTUALIZADO
+        model: "openai/gpt-oss-120b",
+
         messages: [
-          { role: "system", content: SYSTEM_PROMPT },
-          { role: "user", content: userMessage }
+          {
+            role: "system",
+            content: SYSTEM_PROMPT
+          },
+          {
+            role: "user",
+            content: userMessage
+          }
         ],
+
         temperature: 0.7
       },
       {
@@ -103,13 +131,20 @@ async function getGroqResponse(userMessage) {
     );
 
     return response.data.choices[0].message.content;
+
   } catch (error) {
-    console.error("❌ Error en Groq API:", error?.response?.data || error.message);
+    console.error(
+      "❌ Error en Groq API:",
+      error?.response?.data || error.message
+    );
+
     return "¡Hola! En este momento estoy experimentando un pequeño problema técnico. Por favor escríbenos nuevamente en unos minutos.";
   }
 }
 
-// Función para enviar mensaje por Meta Graph API
+// ==========================================
+// 4. FUNCIÓN PARA ENVIAR MENSAJE POR WHATSAPP
+// ==========================================
 async function sendWhatsAppMessage(to, text) {
   const url = `https://graph.facebook.com/v19.0/${process.env.META_PHONE_NUMBER_ID}/messages`;
 
@@ -120,7 +155,9 @@ async function sendWhatsAppMessage(to, text) {
       recipient_type: "individual",
       to: to,
       type: "text",
-      text: { body: text }
+      text: {
+        body: text
+      }
     },
     {
       headers: {
@@ -131,8 +168,13 @@ async function sendWhatsAppMessage(to, text) {
   );
 }
 
+// ==========================================
+// 5. INICIAR SERVIDOR
+// ==========================================
 const PORT = process.env.PORT || 3000;
+
 app.listen(PORT, () => {
-  console.log(`Servidor de JoanaBot activo en puerto ${PORT}`);
+  console.log(
+    `Servidor de JoanaBot activo en puerto ${PORT}`
+  );
 });
-        
