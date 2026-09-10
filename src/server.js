@@ -5,7 +5,9 @@ require("dotenv").config();
 const app = express();
 app.use(express.json());
 
-// PROMPT DE PERSONALIDAD E INSTRUCCIONES
+// ==========================================
+// PROMPT DE PERSONALIDAD E INSTRUCCIONES (Joana / Clalon Shop)
+// ==========================================
 const SYSTEM_PROMPT = `
 Eres Joana, la asistente virtual oficial de Clalon Shop.
 Atiendes a los clientes de forma amable, cercana, rápida y profesional.
@@ -22,6 +24,7 @@ REGLAS DE ATENCIÓN:
 4. Si la consulta requiere atención humana o seguimiento especial, facilítale contacto directo con soporte.
 `;
 
+// Ruta de estado
 app.get("/", (req, res) => {
   res.send("🤖 JoanaBot de Clalon Shop funcionando con IA (Groq)");
 });
@@ -46,6 +49,7 @@ app.post("/webhook", async (req, res) => {
   const body = req.body;
 
   if (body.object === "whatsapp_business_account") {
+    // Confirmación inmediata a Meta
     res.status(200).send("EVENT_RECEIVED");
 
     try {
@@ -54,13 +58,17 @@ app.post("/webhook", async (req, res) => {
       const value = changes?.value;
       const message = value?.messages?.[0];
 
+      // Procesar solo mensajes de texto
       if (message && message.type === "text") {
         const from = message.from;
         const userText = message.text.body;
 
         console.log(`📩 Mensaje recibido de ${from}: "${userText}"`);
 
+        // Consultar la IA
         const aiResponse = await getGroqResponse(userText);
+
+        // Responder por WhatsApp
         await sendWhatsAppMessage(from, aiResponse);
       }
     } catch (error) {
@@ -74,6 +82,8 @@ app.post("/webhook", async (req, res) => {
 // Función para obtener respuesta de Groq API (Llama 3.3 70B Versatile)
 async function getGroqResponse(userMessage) {
   try {
+    const groqKey = process.env.GROQ_API_KEY ? process.env.GROQ_API_KEY.trim() : "";
+
     const response = await axios.post(
       "https://api.groq.com/openai/v1/chat/completions",
       {
@@ -86,7 +96,7 @@ async function getGroqResponse(userMessage) {
       },
       {
         headers: {
-          "Authorization": `Bearer ${process.env.GROQ_API_KEY}`,
+          "Authorization": `Bearer ${groqKey}`,
           "Content-Type": "application/json"
         }
       }
@@ -114,7 +124,7 @@ async function sendWhatsAppMessage(to, text) {
     },
     {
       headers: {
-        "Authorization": `Bearer ${process.env.META_ACCESS_TOKEN}`,
+        "Authorization": `Bearer ${process.env.META_ACCESS_TOKEN.trim()}`,
         "Content-Type": "application/json"
       }
     }
@@ -125,4 +135,4 @@ const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`Servidor de JoanaBot activo en puerto ${PORT}`);
 });
-      
+        
