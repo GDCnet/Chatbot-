@@ -6,38 +6,50 @@ const app = express();
 app.use(express.json());
 
 // ==========================================
-// 1. AQUÍ VA TU PROMPT (Instrucciones del bot)
+// PROMPT DE PERSONALIDAD E INSTRUCCIONES (Joana / Clalon Shop)
 // ==========================================
 const SYSTEM_PROMPT = `
-Eres un asistente virtual amable, profesional y eficiente para atención al cliente.
-Tu objetivo es responder las consultas de los clientes de forma clara, concisa y servicial.
-Mantén un tono respetuoso y cercano en español.
+Eres Joana, la asistente virtual oficial de Clalon Shop.
+Atiendes a los clientes de forma amable, cercana, rápida y profesional.
+
+INFORMACIÓN DE LA TIENDA Y PRODUCTOS:
+- Especialidad: Cuidado personal y capilar.
+- Productos destacados: Champú en barra de Polygonum, aceite de Batana, tintes multifuncionales y tratamientos de crecimiento capilar.
+- Modalidad de entrega: Envíos a todo el país con opción de pago contra entrega (pagas al recibir en tu domicilio).
+
+REGLAS DE ATENCIÓN:
+1. Responde en español de forma concisa (máximo 2 a 3 oraciones por mensaje).
+2. Sé cordial y servicial, usando emojis sencillos para mantener la calidez sin saturar.
+3. Si el cliente pregunta por un producto, destaca sus beneficios principales y pregúntale si desea realizar un pedido o conocer la oferta.
+4. Si la consulta requiere atención humana o seguimiento especial, facilítale contacto directo con soporte.
 `;
 
-// Ruta base de prueba
+// Ruta de estado
 app.get("/", (req, res) => {
-  res.send("🤖 Chatbot de WhatsApp con IA funcionando");
+  res.send("🤖 JoanaBot de Clalon Shop funcionando con IA (Groq)");
 });
 
-// Validación del Webhook con Meta
+// 1. Validar Webhook con Meta (GET)
 app.get("/webhook", (req, res) => {
   const mode = req.query["hub.mode"];
   const token = req.query["hub.verify_token"];
   const challenge = req.query["hub.challenge"];
 
   if (mode === "subscribe" && token === process.env.META_VERIFY_TOKEN) {
-    console.log("✅ Webhook verificado correctamente.");
+    console.log("✅ Webhook verificado exitosamente con Meta.");
     res.status(200).send(challenge);
   } else {
+    console.error("❌ Fallo de verificación: Los tokens no coinciden.");
     res.sendStatus(403);
   }
 });
 
-// Recepción de mensajes de WhatsApp
+// 2. Recepción y procesamiento de mensajes de WhatsApp (POST)
 app.post("/webhook", async (req, res) => {
   const body = req.body;
 
   if (body.object === "whatsapp_business_account") {
+    // Confirmación inmediata a Meta
     res.status(200).send("EVENT_RECEIVED");
 
     try {
@@ -46,28 +58,28 @@ app.post("/webhook", async (req, res) => {
       const value = changes?.value;
       const message = value?.messages?.[0];
 
-      // Verificar que sea un mensaje de texto entrante
+      // Procesar solo mensajes de texto
       if (message && message.type === "text") {
-        const from = message.from; // Número del cliente
-        const text = message.text.body; // Texto que envió el cliente
+        const from = message.from;
+        const userText = message.text.body;
 
-        console.log(`📩 Mensaje recibido de ${from}: "${text}"`);
+        console.log(`📩 Mensaje recibido de ${from}: "${userText}"`);
 
-        // Generar respuesta con la IA (Groq)
-        const aiResponse = await getGroqResponse(text);
+        // Consultar la IA
+        const aiResponse = await getGroqResponse(userText);
 
-        // Enviar la respuesta por WhatsApp
+        // Responder por WhatsApp
         await sendWhatsAppMessage(from, aiResponse);
       }
     } catch (error) {
-      console.error("❌ Error al procesar el mensaje:", error?.response?.data || error.message);
+      console.error("❌ Error interno al procesar webhook:", error?.response?.data || error.message);
     }
   } else {
     res.sendStatus(404);
   }
 });
 
-// Función para consultar a Groq API
+// Función para obtener respuesta de Groq API (Llama 3.3)
 async function getGroqResponse(userMessage) {
   try {
     const response = await axios.post(
@@ -91,11 +103,11 @@ async function getGroqResponse(userMessage) {
     return response.data.choices[0].message.content;
   } catch (error) {
     console.error("❌ Error en Groq API:", error?.response?.data || error.message);
-    return "Lo siento, en este momento no puedo procesar tu solicitud. Inténtalo más tarde.";
+    return "¡Hola! En este momento estoy experimentando un pequeño problema técnico. Por favor escríbenos nuevamente en unos minutos.";
   }
 }
 
-// Función para enviar mensaje a WhatsApp mediante Meta Graph API
+// Función para enviar mensaje por Meta Graph API
 async function sendWhatsAppMessage(to, text) {
   const url = `https://graph.facebook.com/v19.0/${process.env.META_PHONE_NUMBER_ID}/messages`;
 
@@ -119,5 +131,5 @@ async function sendWhatsAppMessage(to, text) {
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
-  console.log(`Servidor funcionando en el puerto ${PORT}`);
+  console.log(`Servidor de JoanaBot activo en puerto ${PORT}`);
 });
