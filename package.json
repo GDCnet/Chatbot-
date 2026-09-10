@@ -1,13 +1,14 @@
 {
   "name": "whatsapp-bot",
   "version": "1.0.0",
-  "description": "Chatbot de WhatsApp Cloud API",
+  "description": "Bot de WhatsApp con Node.js, Express y Groq",
   "main": "src/server.js",
   "scripts": {
     "start": "node src/server.js"
   },
   "dependencies": {
-    "express": "^5.1.0",
-    "dotenv": "^17.2.1"
+    "axios": "^1.6.8",
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2"
   }
 }
