@@ -34,7 +34,6 @@ REGLAS OBLIGATORIAS DE ATENCIÓN:
 4. DERIVACIÓN A ASESOR HUMANO:
    - Si el cliente solicita explícitamente hablar con un representante, tiene reclamos complejos, o dudas sobre pagos al mayor, facilítale el contacto directo de soporte indicándole que un asesor humano atenderá su caso.
 
---------------------------------------------------
 CATÁLOGO OFICIAL DE PRODUCTOS Y PRECIOS:
 
 1. CHAMPÚ EN BARRA POLYGONUM (Natural)
@@ -61,7 +60,6 @@ CATÁLOGO OFICIAL DE PRODUCTOS Y PRECIOS:
 5. LÍNEA DE SALUD Y CUIDADO INTIMO
    - Incluye Shampoo Íntimo y gel de cuidado diario con componentes afirmantes e higiénicos.
    - Precio: $50.000 COP
---------------------------------------------------
 
 INSTRUCCIÓN FINAL:
 Si el cliente pregunta de manera general ("¿Qué productos tienen?"), menciónale brevemente los más vendidos (Champú Polygonum para canas y Shampoo Riva Stop para la caída) y pregúntale cuál de los dos le gustaría probar.
@@ -120,7 +118,7 @@ app.post("/webhook", async (req, res) => {
 // Función para obtener respuesta de Groq API (Llama 3.3 70B Versatile)
 async function getGroqResponse(userMessage) {
   try {
-    const groqKey = process.env.GROQ_API_KEY ? process.env.GROQ_API_KEY.trim() : "";
+    const groqApiKey = (process.env.GROQ_API_KEY || "").trim();
 
     const response = await axios.post(
       "https://api.groq.com/openai/v1/chat/completions",
@@ -130,11 +128,12 @@ async function getGroqResponse(userMessage) {
           { role: "system", content: SYSTEM_PROMPT },
           { role: "user", content: userMessage }
         ],
-        temperature: 0.7
+        temperature: 0.7,
+        max_tokens: 500
       },
       {
         headers: {
-          "Authorization": `Bearer ${groqKey}`,
+          "Authorization": `Bearer ${groqApiKey}`,
           "Content-Type": "application/json"
         }
       }
@@ -142,14 +141,16 @@ async function getGroqResponse(userMessage) {
 
     return response.data.choices[0].message.content;
   } catch (error) {
-    console.error("❌ Error en Groq API:", error?.response?.data || error.message);
+    console.error("❌ Error detallado en Groq API:", error?.response?.data || error.message);
     return "¡Hola! En este momento estoy experimentando un pequeño problema técnico. Por favor escríbenos nuevamente en unos minutos.";
   }
 }
 
 // Función para enviar mensaje por Meta Graph API
 async function sendWhatsAppMessage(to, text) {
-  const url = `https://graph.facebook.com/v19.0/${process.env.META_PHONE_NUMBER_ID}/messages`;
+  const token = (process.env.META_ACCESS_TOKEN || "").trim();
+  const phoneId = (process.env.META_PHONE_NUMBER_ID || "").trim();
+  const url = `https://graph.facebook.com/v19.0/${phoneId}/messages`;
 
   await axios.post(
     url,
@@ -162,7 +163,7 @@ async function sendWhatsAppMessage(to, text) {
     },
     {
       headers: {
-        "Authorization": `Bearer ${process.env.META_ACCESS_TOKEN.trim()}`,
+        "Authorization": `Bearer ${token}`,
         "Content-Type": "application/json"
       }
     }
@@ -173,4 +174,3 @@ const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`Servidor de JoanaBot activo en puerto ${PORT}`);
 });
-          
