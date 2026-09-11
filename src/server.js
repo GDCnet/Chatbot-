@@ -6,44 +6,79 @@ const app = express();
 app.use(express.json());
 
 // ==========================================
-// PROMPT DE PERSONALIDAD E INSTRUCCIONES
-// (Joana / Clalon Shop)
+// PROMPT DE PERSONALIDAD E INSTRUCCIONES (Joana / Clalon Shop)
 // ==========================================
 const SYSTEM_PROMPT = `
-Eres Joana, la asistente virtual oficial de Clalon Shop.
-Atiendes a los clientes de forma amable, cercana, rápida y profesional.
+Eres Joana, la asesora virtual oficial de ventas de Clalon Shop.
+Tu objetivo principal es brindar una atención amable, ultra rápida, empática y orientada a cerrar ventas de productos de cuidado personal y capilar.
 
-INFORMACIÓN DE LA TIENDA Y PRODUCTOS:
-- Especialidad: Cuidado personal y capilar.
-- Productos destacados: Champú en barra de Polygonum, aceite de Batana, tintes multifuncionales y tratamientos de crecimiento capilar.
-- Modalidad de entrega: Envíos a todo el país con opción de pago contra entrega (pagas al recibir en tu domicilio).
+REGLAS OBLIGATORIAS DE ATENCIÓN:
+1. COMUNICACIÓN Y TONO:
+   - Responde SIEMPRE en español de forma concisa (máximo 2 a 3 oraciones cortas por mensaje).
+   - Usa un tono cordial, cercano y vendedor.
+   - Utiliza emojis sencillos y moderados para dar calidez.
+   - Da únicamente los precios que el cliente consulta o el de los combos promocionales.
 
-REGLAS DE ATENCIÓN:
-1. Responde en español de forma concisa (máximo 2 a 3 oraciones por mensaje).
-2. Sé cordial y servicial, usando emojis sencillos para mantener la calidez sin saturar.
-3. Si el cliente pregunta por un producto, destaca sus beneficios principales y pregúntale si desea realizar un pedido o conocer la oferta.
-4. Si la consulta requiere atención humana o seguimiento especial, facilítale contacto directo con soporte.
+2. ENVÍOS Y PAGO:
+   - TODOS los envíos son GRATIS a todo el país.
+   - Método de pago: PAGO CONTRA ENTREGA (el cliente paga en efectivo al recibir en su domicilio).
+
+3. PROCESO DE CIERRE Y RECOLECCIÓN DE DATOS:
+   - Cuando el cliente muestre intención de compra o elija un combo, solicita los datos de envío en un solo mensaje estructurado:
+     1. Nombre completo
+     2. Ciudad / Municipio y Departamento
+     3. Dirección exacta y barrio (o indicaciones si es zona rural)
+     4. Número celular de contacto
+   - Una vez recibidos los datos completos, confirma el pedido e infórmale que se procederá al despacho.
+
+4. DERIVACIÓN A ASESOR HUMANO:
+   - Si el cliente solicita explícitamente hablar con un representante, tiene reclamos complejos, o dudas sobre pagos al mayor, facilítale el contacto directo de soporte indicándole que un asesor humano atenderá su caso.
+
+--------------------------------------------------
+CATÁLOGO OFICIAL DE PRODUCTOS Y PRECIOS:
+
+1. CHAMPÚ EN BARRA POLYGONUM (Natural)
+   - Beneficios: Cubrimiento progresivo de canas, oscurecimiento natural desde la raíz, fortalecimiento y brillo.
+   - Precios y Combos:
+     • 1 Unidad: $54.000 COP
+     • Combo 2 Unidades: $84.000 COP (Opción más popular)
+     • Combo 3 Unidades: $104.000 COP
+
+2. SHAMPOO INTENSIVOR RIVA STOP (Anticaída y Crecimiento)
+   - Beneficios: Fórmula ultrapotente, detiene la caída drásticamente, estimula el crecimiento de cabello nuevo, fortalece la fibra capilar y da volumen. Cuenta con registro INVIMA.
+   - Precios:
+     • 1 Unidad: $60.000 COP
+     • Combo 2 Unidades: $90.000 COP
+
+3. SUPER OFERTA TRANSFORMADORA / SECRETO DE MIGUET
+   - Beneficios: Kit completo de transformación capilar (Shampoo, Splash Capilar y Tratamiento Reparador) para restaurar el cabello dañado, dar brillo espejo y fuerza extrema.
+   - Precio Especial: $100.000 COP
+
+4. PACK 12 EN 1 PREMIUM
+   - Beneficios: Tratamiento concentrado de alta gama con Shampoo Intensivor, Shampoo Verde Fresco y ampolletas concentradas para reparación profunda de 12 niveles.
+   - Precio: $120.000 COP
+
+5. LÍNEA DE SALUD Y CUIDADO INTIMO
+   - Incluye Shampoo Íntimo y gel de cuidado diario con componentes afirmantes e higiénicos.
+   - Precio: $50.000 COP
+--------------------------------------------------
+
+INSTRUCCIÓN FINAL:
+Si el cliente pregunta de manera general ("¿Qué productos tienen?"), menciónale brevemente los más vendidos (Champú Polygonum para canas y Shampoo Riva Stop para la caída) y pregúntale cuál de los dos le gustaría probar.
 `;
 
-// ==========================================
-// RUTA PRINCIPAL
-// ==========================================
+// Ruta de estado
 app.get("/", (req, res) => {
   res.send("🤖 JoanaBot de Clalon Shop funcionando con IA (Groq)");
 });
 
-// ==========================================
-// 1. VALIDAR WEBHOOK CON META (GET)
-// ==========================================
+// 1. Validar Webhook con Meta (GET)
 app.get("/webhook", (req, res) => {
   const mode = req.query["hub.mode"];
   const token = req.query["hub.verify_token"];
   const challenge = req.query["hub.challenge"];
 
-  if (
-    mode === "subscribe" &&
-    token === process.env.META_VERIFY_TOKEN
-  ) {
+  if (mode === "subscribe" && token === process.env.META_VERIFY_TOKEN) {
     console.log("✅ Webhook verificado exitosamente con Meta.");
     res.status(200).send(challenge);
   } else {
@@ -52,14 +87,11 @@ app.get("/webhook", (req, res) => {
   }
 });
 
-// ==========================================
-// 2. RECEPCIÓN DE MENSAJES DE WHATSAPP
-// ==========================================
+// 2. Recepción y procesamiento de mensajes de WhatsApp (POST)
 app.post("/webhook", async (req, res) => {
   const body = req.body;
 
   if (body.object === "whatsapp_business_account") {
-    // Confirmación inmediata a Meta
     res.status(200).send("EVENT_RECEIVED");
 
     try {
@@ -68,58 +100,36 @@ app.post("/webhook", async (req, res) => {
       const value = changes?.value;
       const message = value?.messages?.[0];
 
-      // Procesar solo mensajes de texto
       if (message && message.type === "text") {
         const from = message.from;
         const userText = message.text.body;
 
-        console.log(
-          `📩 Mensaje recibido de ${from}: "${userText}"`
-        );
+        console.log(`📩 Mensaje recibido de ${from}: "${userText}"`);
 
-        // Consultar la IA
         const aiResponse = await getGroqResponse(userText);
-
-        // Responder por WhatsApp
         await sendWhatsAppMessage(from, aiResponse);
       }
     } catch (error) {
-      console.error(
-        "❌ Error interno al procesar webhook:",
-        error?.response?.data || error.message
-      );
+      console.error("❌ Error interno al procesar webhook:", error?.response?.data || error.message);
     }
   } else {
     res.sendStatus(404);
   }
 });
 
-// ==========================================
-// 3. FUNCIÓN PARA OBTENER RESPUESTA DE GROQ
-// ==========================================
+// Función para obtener respuesta de Groq API (Llama 3.3 70B Versatile)
 async function getGroqResponse(userMessage) {
   try {
-    const groqKey = process.env.GROQ_API_KEY
-      ? process.env.GROQ_API_KEY.trim()
-      : "";
+    const groqKey = process.env.GROQ_API_KEY ? process.env.GROQ_API_KEY.trim() : "";
 
     const response = await axios.post(
       "https://api.groq.com/openai/v1/chat/completions",
       {
-        // MODELO ACTUALIZADO
-        model: "openai/gpt-oss-120b",
-
+        model: "llama-3.3-70b-versatile",
         messages: [
-          {
-            role: "system",
-            content: SYSTEM_PROMPT
-          },
-          {
-            role: "user",
-            content: userMessage
-          }
+          { role: "system", content: SYSTEM_PROMPT },
+          { role: "user", content: userMessage }
         ],
-
         temperature: 0.7
       },
       {
@@ -131,20 +141,13 @@ async function getGroqResponse(userMessage) {
     );
 
     return response.data.choices[0].message.content;
-
   } catch (error) {
-    console.error(
-      "❌ Error en Groq API:",
-      error?.response?.data || error.message
-    );
-
+    console.error("❌ Error en Groq API:", error?.response?.data || error.message);
     return "¡Hola! En este momento estoy experimentando un pequeño problema técnico. Por favor escríbenos nuevamente en unos minutos.";
   }
 }
 
-// ==========================================
-// 4. FUNCIÓN PARA ENVIAR MENSAJE POR WHATSAPP
-// ==========================================
+// Función para enviar mensaje por Meta Graph API
 async function sendWhatsAppMessage(to, text) {
   const url = `https://graph.facebook.com/v19.0/${process.env.META_PHONE_NUMBER_ID}/messages`;
 
@@ -155,9 +158,7 @@ async function sendWhatsAppMessage(to, text) {
       recipient_type: "individual",
       to: to,
       type: "text",
-      text: {
-        body: text
-      }
+      text: { body: text }
     },
     {
       headers: {
@@ -168,13 +169,8 @@ async function sendWhatsAppMessage(to, text) {
   );
 }
 
-// ==========================================
-// 5. INICIAR SERVIDOR
-// ==========================================
 const PORT = process.env.PORT || 3000;
-
 app.listen(PORT, () => {
-  console.log(
-    `Servidor de JoanaBot activo en puerto ${PORT}`
-  );
+  console.log(`Servidor de JoanaBot activo en puerto ${PORT}`);
 });
+          
