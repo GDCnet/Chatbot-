@@ -6,9 +6,23 @@ const app = express();
 app.use(express.json());
 
 // ==========================================
+// MEMORIA TEMPORAL DE CONVERSACIONES
+// ==========================================
+
+// Guarda el historial de cada cliente por número de WhatsApp.
+// Esta memoria se mantiene mientras el servidor esté funcionando.
+const conversations = {};
+
+// Cantidad máxima de mensajes que conservaremos
+// por cada conversación.
+const MAX_HISTORY = 20;
+
+
+// ==========================================
 // PROMPT DE PERSONALIDAD E INSTRUCCIONES
 // JOANA / CLALON SHOP
 // ==========================================
+
 const SYSTEM_PROMPT = `
 Eres Joana, la asesora virtual de ventas de Clalon Shop.
 
@@ -334,16 +348,20 @@ Usa emojis de manera moderada.
 La conversación debe sentirse como una conversación real con una asesora de ventas.
 `;
 
+
 // ==========================================
 // RUTA PRINCIPAL
 // ==========================================
+
 app.get("/", (req, res) => {
   res.send("🤖 JoanaBot de Clalon Shop funcionando con IA (Groq)");
 });
 
+
 // ==========================================
 // 1. VALIDAR WEBHOOK CON META (GET)
 // ==========================================
+
 app.get("/webhook", (req, res) => {
   const mode = req.query["hub.mode"];
   const token = req.query["hub.verify_token"];
@@ -361,13 +379,16 @@ app.get("/webhook", (req, res) => {
   }
 });
 
+
 // ==========================================
 // 2. RECEPCIÓN Y PROCESAMIENTO DE MENSAJES
 // ==========================================
+
 app.post("/webhook", async (req, res) => {
   const body = req.body;
 
   if (body.object === "whatsapp_business_account") {
+
     // Confirmación inmediata a Meta
     res.status(200).send("EVENT_RECEIVED");
 
@@ -377,8 +398,9 @@ app.post("/webhook", async (req, res) => {
       const value = changes?.value;
       const message = value?.messages?.[0];
 
-      // Procesar solo mensajes de texto
+      // Procesar solamente mensajes de texto
       if (message && message.type === "text") {
+
         const from = message.from;
         const userText = message.text.body;
 
@@ -386,34 +408,84 @@ app.post("/webhook", async (req, res) => {
           `📩 Mensaje recibido de ${from}: "${userText}"`
         );
 
-        // Consultar la IA
-        const aiResponse = await getGroqResponse(userText);
+        // ==========================================
+        // CREAR MEMORIA PARA EL CLIENTE
+        // ==========================================
 
-        // Responder por WhatsApp
+        if (!conversations[from]) {
+          conversations[from] = [];
+          console.log(`🧠 Nueva conversación creada para ${from}`);
+        }
+
+        // Guardar mensaje del cliente
+        conversations[from].push({
+          role: "user",
+          content: userText
+        });
+
+        // Limitar memoria
+        if (conversations[from].length > MAX_HISTORY) {
+          conversations[from].shift();
+        }
+
+        // ==========================================
+        // CONSULTAR IA CON MEMORIA
+        // ==========================================
+
+        const aiResponse = await getGroqResponse(
+          conversations[from]
+        );
+
+        // Guardar respuesta de Joana
+        conversations[from].push({
+          role: "assistant",
+          content: aiResponse
+        });
+
+        // Limitar memoria nuevamente
+        if (conversations[from].length > MAX_HISTORY) {
+          conversations[from].shift();
+        }
+
+        // Mostrar en logs cuántos mensajes conserva
+        console.log(
+          `🧠 Memoria de ${from}: ${conversations[from].length} mensajes`
+        );
+
+        // ==========================================
+        // RESPONDER POR WHATSAPP
+        // ==========================================
+
         await sendWhatsAppMessage(from, aiResponse);
       }
+
     } catch (error) {
+
       console.error(
         "❌ Error interno al procesar webhook:",
         error?.response?.data || error.message
       );
     }
+
   } else {
     res.sendStatus(404);
   }
 });
 
+
 // ==========================================
-// 3. OBTENER RESPUESTA DE GROQ
+// 3. OBTENER RESPUESTA DE GROQ CON MEMORIA
 // ==========================================
-async function getGroqResponse(userMessage) {
+
+async function getGroqResponse(conversationHistory) {
+
   try {
+
     const groqApiKey = (process.env.GROQ_API_KEY || "").trim();
 
     const response = await axios.post(
       "https://api.groq.com/openai/v1/chat/completions",
       {
-        // Modelo actualizado de Groq
         model: "openai/gpt-oss-120b",
 
         messages: [
@@ -421,15 +493,15 @@ async function getGroqResponse(userMessage) {
             role: "system",
             content: SYSTEM_PROMPT
           },
-          {
-            role: "user",
-            content: userMessage
-          }
+
+          // Historial de conversación
+          ...conversationHistory
         ],
 
         temperature: 0.7,
         max_tokens: 500
       },
+
       {
         headers: {
           "Authorization": `Bearer ${groqApiKey}`,
@@ -441,6 +513,7 @@ async function getGroqResponse(userMessage) {
     return response.data.choices[0].message.content;
 
   } catch (error) {
+
     console.error(
       "❌ Error detallado en Groq API:",
       error?.response?.data || error.message
@@ -450,14 +523,18 @@ async function getGroqResponse(userMessage) {
   }
 }
 
+
 // ==========================================
 // 4. ENVIAR MENSAJE POR META WHATSAPP API
 // ==========================================
+
 async function sendWhatsAppMessage(to, text) {
+
   const token = (process.env.META_ACCESS_TOKEN || "").trim();
   const phoneId = (process.env.META_PHONE_NUMBER_ID || "").trim();
 
-  const url = `https://graph.facebook.com/v19.0/${phoneId}/messages`;
+  const url =
+    `https://graph.facebook.com/v19.0/${phoneId}/messages`;
 
   await axios.post(
     url,
@@ -470,6 +547,7 @@ async function sendWhatsAppMessage(to, text) {
         body: text
       }
     },
+
     {
       headers: {
         "Authorization": `Bearer ${token}`,
@@ -479,9 +557,11 @@ async function sendWhatsAppMessage(to, text) {
   );
 }
 
+
 // ==========================================
 // 5. INICIAR SERVIDOR
 // ==========================================
+
 const PORT = process.env.PORT || 3000;
 
 app.listen(PORT, () => {
