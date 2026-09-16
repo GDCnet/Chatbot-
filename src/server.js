@@ -1,5 +1,6 @@
 const express = require("express");
 const axios = require("axios");
+const FormData = require("form-data");
 require("dotenv").config();
 
 const app = express();
@@ -9,14 +10,8 @@ app.use(express.json());
 // MEMORIA TEMPORAL DE CONVERSACIONES
 // ==========================================
 
-// Guarda el historial de cada cliente por número de WhatsApp.
-// Esta memoria se mantiene mientras el servidor esté funcionando.
 const conversations = {};
-
-// Cantidad máxima de mensajes que conservaremos
-// por cada conversación.
 const MAX_HISTORY = 20;
-
 
 // ==========================================
 // PROMPT DE PERSONALIDAD E INSTRUCCIONES
@@ -348,7 +343,6 @@ Usa emojis de manera moderada.
 La conversación debe sentirse como una conversación real con una asesora de ventas.
 `;
 
-
 // ==========================================
 // RUTA PRINCIPAL
 // ==========================================
@@ -356,7 +350,6 @@ La conversación debe sentirse como una conversación real con una asesora de ve
 app.get("/", (req, res) => {
   res.send("🤖 JoanaBot de Clalon Shop funcionando con IA (Groq)");
 });
-
 
 // ==========================================
 // 1. VALIDAR WEBHOOK CON META (GET)
@@ -367,10 +360,7 @@ app.get("/webhook", (req, res) => {
   const token = req.query["hub.verify_token"];
   const challenge = req.query["hub.challenge"];
 
-  if (
-    mode === "subscribe" &&
-    token === process.env.META_VERIFY_TOKEN
-  ) {
+  if (mode === "subscribe" && token === process.env.META_VERIFY_TOKEN) {
     console.log("✅ Webhook verificado exitosamente con Meta.");
     res.status(200).send(challenge);
   } else {
@@ -378,7 +368,6 @@ app.get("/webhook", (req, res) => {
     res.sendStatus(403);
   }
 });
-
 
 // ==========================================
 // 2. RECEPCIÓN Y PROCESAMIENTO DE MENSAJES
@@ -388,8 +377,6 @@ app.post("/webhook", async (req, res) => {
   const body = req.body;
 
   if (body.object === "whatsapp_business_account") {
-
-    // Confirmación inmediata a Meta
     res.status(200).send("EVENT_RECEIVED");
 
     try {
@@ -398,122 +385,194 @@ app.post("/webhook", async (req, res) => {
       const value = changes?.value;
       const message = value?.messages?.[0];
 
-      // Procesar solamente mensajes de texto
-      if (message && message.type === "text") {
+      if (!message) return;
 
-        const from = message.from;
+      const from = message.from;
+      let userMessageContent = null;
+
+      // 1. Texto plano
+      if (message.type === "text") {
         const userText = message.text.body;
+        console.log(`📩 Mensaje recibido de ${from}: "${userText}"`);
+        userMessageContent = userText;
+      } 
+      // 2. Nota de voz / Audio
+      else if (message.type === "audio") {
+        const audioId = message.audio.id;
+        console.log(`🎙️ Nota de voz recibida de ${from} (ID: ${audioId})`);
+        const userText = await transcribeAudioWithGroq(audioId);
+        console.log(`📝 Transcripción de audio: "${userText}"`);
+        userMessageContent = userText;
+      } 
+      // 3. Imagen (Foto enviada por el cliente)
+      else if (message.type === "image") {
+        const imageId = message.image.id;
+        const caption = message.image.caption || "¿Qué ves en esta imagen?";
+        console.log(`🖼️ Imagen recibida de ${from} (ID: ${imageId})`);
 
-        console.log(
-          `📩 Mensaje recibido de ${from}: "${userText}"`
-        );
+        // Descargar la imagen y convertirla a Base64
+        const base64Image = await downloadImageAsBase64(imageId);
 
-        // ==========================================
-        // CREAR MEMORIA PARA EL CLIENTE
-        // ==========================================
+        if (base64Image) {
+          userMessageContent = [
+            { type: "text", text: caption },
+            {
+              type: "image_url",
+              image_url: { url: `data:image/jpeg;base64,${base64Image}` }
+            }
+          ];
+        } else {
+          userMessageContent = "El cliente envió una imagen, pero no pudo descargarse.";
+        }
+      }
 
+      if (userMessageContent) {
         if (!conversations[from]) {
           conversations[from] = [];
           console.log(`🧠 Nueva conversación creada para ${from}`);
         }
 
-        // Guardar mensaje del cliente
+        // Guardar interacción
         conversations[from].push({
           role: "user",
-          content: userText
+          content: userMessageContent
         });
 
-        // Limitar memoria
         if (conversations[from].length > MAX_HISTORY) {
           conversations[from].shift();
         }
 
-        // ==========================================
-        // CONSULTAR IA CON MEMORIA
-        // ==========================================
+        // Determinar si la petición requiere visión
+        const containsImage = Array.isArray(userMessageContent);
+        const aiResponse = await getGroqResponse(conversations[from], containsImage);
 
-        const aiResponse = await getGroqResponse(
-          conversations[from]
-        );
-
-        // Guardar respuesta de Joana
+        // Guardar respuesta
         conversations[from].push({
           role: "assistant",
           content: aiResponse
         });
 
-        // Limitar memoria nuevamente
         if (conversations[from].length > MAX_HISTORY) {
           conversations[from].shift();
         }
 
-        // Mostrar en logs cuántos mensajes conserva
-        console.log(
-          `🧠 Memoria de ${from}: ${conversations[from].length} mensajes`
-        );
-
-        // ==========================================
-        // RESPONDER POR WHATSAPP
-        // ==========================================
-
+        console.log(`🧠 Memoria de ${from}: ${conversations[from].length} mensajes`);
         await sendWhatsAppMessage(from, aiResponse);
       }
-
     } catch (error) {
-
       console.error(
         "❌ Error interno al procesar webhook:",
         error?.response?.data || error.message
       );
     }
-
   } else {
     res.sendStatus(404);
   }
 });
 
-
 // ==========================================
-// 3. OBTENER RESPUESTA DE GROQ CON MEMORIA
+// 3. DESCARGAR IMAGEN Y CONVERTIR A BASE64
 // ==========================================
 
-async function getGroqResponse(conversationHistory) {
-
+async function downloadImageAsBase64(imageId) {
   try {
+    const metaToken = (process.env.META_ACCESS_TOKEN || "").trim();
 
+    // Obtener URL de descarga
+    const mediaRes = await axios.get(`https://graph.facebook.com/v19.0/${imageId}`, {
+      headers: { Authorization: `Bearer ${metaToken}` }
+    });
+
+    // Descargar imagen en formato Buffer
+    const imageBuffer = await axios.get(mediaRes.data.url, {
+      headers: { Authorization: `Bearer ${metaToken}` },
+      responseType: "arraybuffer"
+    });
+
+    return Buffer.from(imageBuffer.data).toString("base64");
+  } catch (error) {
+    console.error("❌ Error descargando la imagen de Meta:", error?.response?.data || error.message);
+    return null;
+  }
+}
+
+// ==========================================
+// 4. TRANSCRIBIR AUDIO DE WHATSAPP
+// ==========================================
+
+async function transcribeAudioWithGroq(audioId) {
+  try {
+    const metaToken = (process.env.META_ACCESS_TOKEN || "").trim();
+    const groqKey = (process.env.GROQ_API_KEY || "").trim();
+
+    const mediaRes = await axios.get(`https://graph.facebook.com/v19.0/${audioId}`, {
+      headers: { Authorization: `Bearer ${metaToken}` }
+    });
+
+    const audioBuffer = await axios.get(mediaRes.data.url, {
+      headers: { Authorization: `Bearer ${metaToken}` },
+      responseType: "arraybuffer"
+    });
+
+    const form = new FormData();
+    form.append("file", Buffer.from(audioBuffer.data), {
+      filename: "audio.ogg",
+      contentType: "audio/ogg"
+    });
+    form.append("model", "whisper-large-v3");
+    form.append("language", "es");
+
+    const whisperRes = await axios.post("https://api.groq.com/openai/v1/audio/transcriptions", form, {
+      headers: {
+        ...form.getHeaders(),
+        Authorization: `Bearer ${groqKey}`
+      }
+    });
+
+    return whisperRes.data.text;
+  } catch (error) {
+    console.error("❌ Error al transcribir audio:", error?.response?.data || error.message);
+    return "Hola, te envié un mensaje de audio.";
+  }
+}
+
+// ==========================================
+// 5. OBTENER RESPUESTA DE GROQ CON MEMORIA
+// ==========================================
+
+async function getGroqResponse(conversationHistory, containsImage = false) {
+  try {
     const groqApiKey = (process.env.GROQ_API_KEY || "").trim();
+
+    // Si viene una imagen usará un modelo con soporte de Visión. Si es solo texto usa tu modelo base.
+    const selectedModel = containsImage 
+      ? "llama-3.2-11b-vision-preview" 
+      : "openai/gpt-oss-120b";
 
     const response = await axios.post(
       "https://api.groq.com/openai/v1/chat/completions",
       {
-        model: "openai/gpt-oss-120b",
-
+        model: selectedModel,
         messages: [
           {
             role: "system",
             content: SYSTEM_PROMPT
           },
-
-          // Historial de conversación
           ...conversationHistory
         ],
-
         temperature: 0.7,
         max_tokens: 500
       },
-
       {
         headers: {
-          "Authorization": `Bearer ${groqApiKey}`,
+          Authorization: `Bearer ${groqApiKey}`,
           "Content-Type": "application/json"
         }
       }
     );
 
     return response.data.choices[0].message.content;
-
   } catch (error) {
-
     console.error(
       "❌ Error detallado en Groq API:",
       error?.response?.data || error.message
@@ -523,18 +582,15 @@ async function getGroqResponse(conversationHistory) {
   }
 }
 
-
 // ==========================================
-// 4. ENVIAR MENSAJE POR META WHATSAPP API
+// 6. ENVIAR MENSAJE POR META WHATSAPP API
 // ==========================================
 
 async function sendWhatsAppMessage(to, text) {
-
   const token = (process.env.META_ACCESS_TOKEN || "").trim();
   const phoneId = (process.env.META_PHONE_NUMBER_ID || "").trim();
 
-  const url =
-    `https://graph.facebook.com/v19.0/${phoneId}/messages`;
+  const url = `https://graph.facebook.com/v19.0/${phoneId}/messages`;
 
   await axios.post(
     url,
@@ -547,25 +603,21 @@ async function sendWhatsAppMessage(to, text) {
         body: text
       }
     },
-
     {
       headers: {
-        "Authorization": `Bearer ${token}`,
+        Authorization: `Bearer ${token}`,
         "Content-Type": "application/json"
       }
     }
   );
 }
 
-
 // ==========================================
-// 5. INICIAR SERVIDOR
+// 7. INICIAR SERVIDOR
 // ==========================================
 
 const PORT = process.env.PORT || 3000;
 
 app.listen(PORT, () => {
-  console.log(
-    `Servidor de JoanaBot activo en puerto ${PORT}`
-  );
+  console.log(`Servidor de JoanaBot activo en puerto ${PORT}`);
 });
